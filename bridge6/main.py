@@ -5,6 +5,13 @@ import secrets
 import sys
 import shutil
 
+
+BANCOS_PROTEGIDOS = {
+    "Admin",
+    "Modo"
+    }
+
+
 def obtener_fichero_json():
     if len(sys.argv) != 2:
         raise ValueError(
@@ -467,7 +474,89 @@ def asignar_bank_ids_aleatorios(config):
     """
 
     for banco in config.get("bankSettings", []):
+
+        if banco.get("bankName") in BANCOS_PROTEGIDOS:
+            continue
+
         banco["bankId"] = generar_bank_id_unico(config)
+
+
+def copiar_colores_desde_banco(config, nombre_banco_origen):
+
+    bancos = config["bankSettings"]
+
+    banco_origen = next(
+        (
+            banco
+            for banco in bancos
+            if banco.get("bankName") == nombre_banco_origen
+        ),
+        None
+    )
+
+    if banco_origen is None:
+        raise ValueError(
+            f"No existe el banco: {nombre_banco_origen}"
+        )
+
+    colores_origen = []
+
+    for pulsador in banco_origen.get("footswitches", []):
+
+        colores_origen.append({
+            "primaryColor": copy.deepcopy(
+                pulsador.get("primaryColor")
+            ),
+            "secondaryColor": copy.deepcopy(
+                pulsador.get("secondaryColor")
+            ),
+            "primaryLedMode": copy.deepcopy(
+                pulsador.get("primaryLedMode")
+            ),
+            "secondaryLedMode": copy.deepcopy(
+                pulsador.get("secondaryLedMode")
+            ),
+        })
+
+    modificados = 0
+
+    for banco in bancos:
+
+        if banco.get("bankName") in BANCOS_PROTEGIDOS:
+            continue
+
+        if banco.get("bankName") == nombre_banco_origen:
+            continue
+
+        for i, pulsador in enumerate(
+            banco.get("footswitches", [])
+        ):
+
+            if i >= len(colores_origen):
+                break
+
+            pulsador["primaryColor"] = copy.deepcopy(
+                colores_origen[i]["primaryColor"]
+            )
+
+            pulsador["secondaryColor"] = copy.deepcopy(
+                colores_origen[i]["secondaryColor"]
+            )
+
+            pulsador["primaryLedMode"] = copy.deepcopy(
+                colores_origen[i]["primaryLedMode"]
+            )
+
+            pulsador["secondaryLedMode"] = copy.deepcopy(
+                colores_origen[i]["secondaryLedMode"]
+            )
+
+        modificados += 1
+
+    print(
+        f"Colores copiados desde '{nombre_banco_origen}' "
+        f"a {modificados} bancos."
+    )
 
 
 def cambiar_tempo(config, nombre_cancion, nuevo_tempo):
@@ -603,6 +692,9 @@ def buscar_pulsadores_en_todos_los_bancos(
     encontrados = []
 
     for bank_index, banco in enumerate(bancos):
+
+        if banco.get("bankName") in BANCOS_PROTEGIDOS:
+            continue
 
         pulsadores = banco.get("footswitches", [])
 
@@ -795,6 +887,51 @@ def swap_pulsadores(
     )
 
 
+def reemplazar_banco(origen_config, destino_config, nombre_banco):
+
+    banco_origen = next(
+        (
+            b
+            for b in origen_config["bankSettings"]
+            if b.get("bankName") == nombre_banco
+        ),
+        None,
+    )
+
+    if banco_origen is None:
+        raise ValueError(
+            f"No existe el banco {nombre_banco!r} en el fichero origen"
+        )
+
+    indice_destino = next(
+        (
+            i
+            for i, b in enumerate(destino_config["bankSettings"])
+            if b.get("bankName") == nombre_banco
+        ),
+        None,
+    )
+
+    if indice_destino is None:
+        raise ValueError(
+            f"No existe el banco {nombre_banco!r} en el fichero destino"
+        )
+
+    nuevo_banco = copy.deepcopy(banco_origen)
+
+    # IMPORTANTE:
+    # generar nuevo bankId para forzar que Bridge6 detecte el cambio
+    nuevo_banco["bankId"] = generar_bank_id_unico(
+        destino_config
+    )
+
+    destino_config["bankSettings"][indice_destino] = nuevo_banco
+
+    print(
+        f"Banco reemplazado: {nombre_banco}"
+    )
+
+
 def main():
 
     fichero = obtener_fichero_json()
@@ -813,6 +950,8 @@ def main():
         print("2) Cambiar Set List")
         print("3) Cambiar tempo")
         print("4) Swap de pulsadores")
+        print("5) Copiar colores")
+        print("6) Copiar banco entre configuraciones")
         print("0) Guardar y salir")
         print("=" * 50)
 
@@ -949,6 +1088,46 @@ def main():
                 nombre2=nombre2,
             )
 
+
+        # --------------------------------------------------------
+        # 5. Caqmbiar colores de los botones
+        # --------------------------------------------------------
+        elif opcion == "5":
+
+            nombre_banco = input(
+                "Banco de referencia: "
+            ).strip()
+
+            copiar_colores_desde_banco(
+                config,
+                nombre_banco
+            )
+
+            asignar_bank_ids_aleatorios(config)
+
+
+        # --------------------------------------------------------
+        # 5. COPIAR BANCO ENTRE CONFIGURACIONES
+        # --------------------------------------------------------
+        elif opcion == "6":
+
+            fichero_origen = Path(
+                input("Fichero origen: ").strip()
+            ).expanduser().resolve()
+
+            config_origen = cargar_configuracion(
+                fichero_origen
+            )
+
+            nombre_banco = input(
+                "Nombre del banco a copiar: "
+            ).strip()
+
+            reemplazar_banco(
+                config_origen,
+                config,
+                nombre_banco
+            )
 
         # --------------------------------------------------------
         # 0. GUARDAR Y SALIR
